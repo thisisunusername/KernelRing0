@@ -28,6 +28,7 @@
 #include <ctype.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
+#include <poll.h>
 #include <sys/un.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
@@ -39,6 +40,7 @@
 
 #define KR0_MAGIC  'K'
 #define KR0_MAX_AL 64
+#define CLIENT_TIMEOUT_MS 2000
 
 struct kr0_al_list {
     int count;
@@ -69,7 +71,7 @@ static int resolve_uid(const char *s, unsigned int *out)
 
     errno = 0;
     v = strtol(s, &end, 10);
-    if (errno == 0 && *end == '\0' && v >= 0) {
+    if (errno == 0 && end != s && *end == '\0' && v >= 0 && v <= 4294967295L) {
         *out = (unsigned int)v;
         return 0;
     }
@@ -184,25 +186,36 @@ static int daemon_al_list(struct kr0_al_list *lst)
     return ioctl(g_dev_fd, KR0_AL_LIST, lst);
 }
 
+/* Atomic rewrite: write to CONF_PATH ".tmp", fsync, then rename(). */
 static void persist_allowlist(void)
 {
     struct kr0_al_list lst;
+    char tmp_path[sizeof(CONF_PATH) + 8];
     FILE *f;
-    int i;
+    int i, fd;
 
     if (daemon_al_list(&lst) < 0)
         return;
 
     mkdir(CONF_DIR, 0700);
 
-    f = fopen(CONF_PATH, "w");
+    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", CONF_PATH);
+
+    f = fopen(tmp_path, "w");
     if (!f)
         return;
 
     for (i = 0; i < lst.count; i++)
         fprintf(f, "%u\n", lst.uids[i]);
 
+    fflush(f);
+    fd = fileno(f);
+    if (fd >= 0)
+        fsync(fd);
     fclose(f);
+
+    if (rename(tmp_path, CONF_PATH) < 0)
+        unlink(tmp_path);
 }
 
 static void load_allowlist(void)
@@ -244,17 +257,56 @@ static void load_allowlist(void)
                 break;
             }
         }
-        if (!dup)
-            daemon_al_add(uid);
+        if (!dup) {
+            if (daemon_al_add(uid) == 0 && cur.count < KR0_MAX_AL)
+                cur.uids[cur.count++] = uid;   /* keep snapshot in sync */
+        }
     }
 
     fclose(f);
 }
 
+/* Parse a decimal uid strictly. Returns 0 on success, -1 on bad input. */
+static int parse_uid(const char *s, unsigned int *out)
+{
+    char *end;
+    unsigned long v;
+
+    while (*s == ' ' || *s == '\t')
+        s++;
+    if (*s == '\0' || *s == '-')
+        return -1;
+
+    errno = 0;
+    v = strtoul(s, &end, 10);
+    if (errno != 0 || end == s)
+        return -1;
+    while (*end == ' ' || *end == '\t')
+        end++;
+    if (*end != '\0' || v > 4294967295UL)
+        return -1;
+
+    *out = (unsigned int)v;
+    return 0;
+}
+
 static void handle_client(int cfd)
 {
     char buf[128];
+    char out[1024];
     ssize_t n;
+    int off = 0;
+    int r;
+    struct pollfd pfd;
+
+    /* Bound how long a client may hold the daemon: a connected peer that
+     * never sends a request must not block accept() forever.
+     */
+    pfd.fd = cfd;
+    pfd.events = POLLIN;
+    pfd.revents = 0;
+    if (poll(&pfd, 1, CLIENT_TIMEOUT_MS) <= 0)
+        return;
 
     n = read(cfd, buf, sizeof(buf) - 1);
     if (n <= 0)
@@ -263,49 +315,105 @@ static void handle_client(int cfd)
     buf[strcspn(buf, "\r\n")] = '\0';
 
     if (strncmp(buf, "ADD ", 4) == 0) {
-        unsigned int uid = (unsigned int)strtoul(buf + 4, NULL, 10);
-        int ret = daemon_al_add(uid);
+        unsigned int uid;
+        int ret;
+
+        if (parse_uid(buf + 4, &uid) < 0) {
+            r = snprintf(out, sizeof(out), "ERR invalid uid\n");
+            if (r > 0)
+                if (write(cfd, out, (size_t)r) < 0)
+                    return;
+            return;
+        }
+
+        ret = daemon_al_add(uid);
         if (ret == 0) {
             persist_allowlist();
-            write(cfd, "OK\n", 3);
+            r = snprintf(out, sizeof(out), "OK\n");
         } else {
-            char out[64];
-            snprintf(out, sizeof(out), "ERR add failed (%d)\n", ret);
-            write(cfd, out, strlen(out));
+            r = snprintf(out, sizeof(out), "ERR add failed: %s\n",
+                         strerror(-ret));
         }
+        if (r > 0)
+            if (write(cfd, out, (size_t)r) < 0)
+                return;
     } else if (strncmp(buf, "DEL ", 4) == 0) {
-        unsigned int uid = (unsigned int)strtoul(buf + 4, NULL, 10);
-        int ret = daemon_al_del(uid);
+        unsigned int uid;
+        int ret;
+
+        if (parse_uid(buf + 4, &uid) < 0) {
+            r = snprintf(out, sizeof(out), "ERR invalid uid\n");
+            if (r > 0)
+                if (write(cfd, out, (size_t)r) < 0)
+                    return;
+            return;
+        }
+
+        ret = daemon_al_del(uid);
         if (ret == 0) {
             persist_allowlist();
-            write(cfd, "OK\n", 3);
+            r = snprintf(out, sizeof(out), "OK\n");
         } else {
-            char out[64];
-            snprintf(out, sizeof(out), "ERR del failed (%d)\n", ret);
-            write(cfd, out, strlen(out));
+            r = snprintf(out, sizeof(out), "ERR del failed: %s\n",
+                         strerror(-ret));
         }
+        if (r > 0)
+            if (write(cfd, out, (size_t)r) < 0)
+                return;
     } else if (strcmp(buf, "LIST") == 0) {
         struct kr0_al_list lst;
-        char out[512];
-        int i, off = 0;
+        int i, total = 0;
 
         if (daemon_al_list(&lst) < 0) {
-            write(cfd, "ERR list failed\n", 16);
+            r = snprintf(out, sizeof(out), "ERR list failed: %s\n",
+                         strerror(errno));
+            if (r > 0)
+                if (write(cfd, out, (size_t)r) < 0)
+                    return;
             return;
         }
 
-        if (lst.count == 0) {
-            write(cfd, "LIST_EMPTY\n", 11);
+        if (lst.count <= 0) {
+            r = snprintf(out, sizeof(out), "LIST_EMPTY\n");
+            if (r > 0)
+                if (write(cfd, out, (size_t)r) < 0)
+                    return;
             return;
         }
 
-        off += snprintf(out + off, sizeof(out) - off, "LIST ");
-        for (i = 0; i < lst.count; i++)
-            off += snprintf(out + off, sizeof(out) - off, "%u%s",
-                            lst.uids[i], i + 1 < lst.count ? " " : "\n");
-        write(cfd, out, off);
+        /* Fix 1: snprintf returns the *wanted* length. Track it safely so a
+         * negative (or overflowing) remaining-size can never reach snprintf.
+         */
+        off = 0;
+        r = snprintf(out + off, sizeof(out) - (size_t)off, "LIST");
+        if (r < 0)
+            return;
+        total = r;
+
+        for (i = 0; i < lst.count; i++) {
+            int need;
+
+            need = snprintf(NULL, 0, " %u", lst.uids[i]);
+            if (need < 0)
+                break;
+            if ((size_t)total + (size_t)need + 2 > sizeof(out))
+                break;                     /* would truncate: stop cleanly */
+
+            r = snprintf(out + total, sizeof(out) - (size_t)total,
+                         " %u", lst.uids[i]);
+            if (r < 0 || r >= (int)(sizeof(out) - (size_t)total))
+                break;
+            total += r;
+        }
+
+        out[total++] = '\n';
+        if (write(cfd, out, (size_t)total) < 0)
+            return;
     } else {
-        write(cfd, "ERR unknown command\n", 20);
+        r = snprintf(out, sizeof(out), "ERR unknown command\n");
+        if (r > 0)
+            if (write(cfd, out, (size_t)r) < 0)
+                return;
     }
 }
 
