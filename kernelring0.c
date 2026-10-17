@@ -272,6 +272,6 @@ module_init(kr0_init);
 module_exit(kr0_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("KernelRing0");
+MODULE_AUTHOR("thisisunusername");
 MODULE_DESCRIPTION("KernelRing0: Ring0 privilege gateway with allowlist");
 MODULE_VERSION("1.1");
