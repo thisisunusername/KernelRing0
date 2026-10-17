@@ -1,0 +1,16 @@
+[Unit]
+Description=KernelRing0 daemon (allowlist manager)
+After=network.target systemd-modules-load.service
+Wants=systemd-modules-load.service
+
+[Service]
+Type=simple
+ExecStartPre=/sbin/modprobe kernelring0
+ExecStart=/usr/local/sbin/kernelring0d
+Restart=on-failure
+RestartSec=3
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
