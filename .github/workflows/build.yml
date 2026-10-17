@@ -24,11 +24,11 @@ jobs:
             extra_cflags: ""
           - arch: aarch64
             cc: aarch64-linux-gnu-gcc
-            packages: gcc-aarch64-linux-gnu
+            packages: gcc-aarch64-linux-gnu libc6-dev-arm64-cross
             extra_cflags: ""
           - arch: armv7
             cc: arm-linux-gnueabihf-gcc
-            packages: gcc-arm-linux-gnueabihf
+            packages: gcc-arm-linux-gnueabihf libc6-dev-armhf-cross
             extra_cflags: ""
 
     steps:
