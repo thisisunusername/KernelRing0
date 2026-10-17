@@ -26,6 +26,7 @@
 #include <errno.h>
 #include <pwd.h>
 #include <ctype.h>
+#include <limits.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <poll.h>
@@ -71,7 +72,12 @@ static int resolve_uid(const char *s, unsigned int *out)
 
     errno = 0;
     v = strtol(s, &end, 10);
-    if (errno == 0 && end != s && *end == '\0' && v >= 0 && v <= 4294967295L) {
+    /* On 32-bit targets long and unsigned int have the same width, so the
+     * upper bound is enforced by the type itself; UINT_MAX keeps the
+     * comparison meaningful everywhere and avoids -Wtype-limits.
+     */
+    if (errno == 0 && end != s && *end == '\0' && v >= 0 &&
+        (unsigned long)v <= (unsigned long)UINT_MAX) {
         *out = (unsigned int)v;
         return 0;
     }
@@ -283,7 +289,10 @@ static int parse_uid(const char *s, unsigned int *out)
         return -1;
     while (*end == ' ' || *end == '\t')
         end++;
-    if (*end != '\0' || v > 4294967295UL)
+    /* Same width caveat as resolve_uid(): on 32-bit targets the cast cannot
+     * overflow, so UINT_MAX is the portable bound to compare against.
+     */
+    if (*end != '\0' || v > (unsigned long)UINT_MAX)
         return -1;
 
     *out = (unsigned int)v;

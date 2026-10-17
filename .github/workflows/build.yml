@@ -1,0 +1,65 @@
+name: build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  userspace:
+    name: userspace (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            cc: gcc
+            packages: gcc
+            extra_cflags: ""
+          - arch: aarch64
+            cc: aarch64-linux-gnu-gcc
+            packages: gcc-aarch64-linux-gnu
+            extra_cflags: ""
+          - arch: armv7
+            cc: arm-linux-gnueabihf-gcc
+            packages: gcc-arm-linux-gnueabihf
+            extra_cflags: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ${{ matrix.packages }}
+
+      - name: Build kernelring0d
+        run: |
+          ${{ matrix.cc }} -O2 -Wall -Wextra -Werror ${{ matrix.extra_cflags }} \
+            -o kernelring0d-${{ matrix.arch }} kernelring0d.c
+
+      - name: Build kr0ctl
+        run: |
+          ${{ matrix.cc }} -O2 -Wall -Wextra -Werror ${{ matrix.extra_cflags }} \
+            -o kr0ctl-${{ matrix.arch }} kr0ctl.c
+
+      - name: Show binary info
+        run: |
+          file kernelring0d-${{ matrix.arch }} kr0ctl-${{ matrix.arch }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.arch }}
+          path: |
+            kernelring0d-${{ matrix.arch }}
+            kr0ctl-${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 30
