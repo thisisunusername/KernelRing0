@@ -31,6 +31,7 @@ NAME_MODCONF := $(NAME_MODULE).conf
 
 KDIR  ?= /lib/modules/$(shell uname -r)/build
 PWD   := $(shell pwd)
+obj-m += kernelring0.o
 CC    ?= gcc
 CFLAGS ?= -O2 -Wall -Wextra
 
