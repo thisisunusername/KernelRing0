@@ -1,12 +1,14 @@
 # KernelRing0
 
-**All the code was written by Deepseek AI**
+**The code was written by Deepseek AI**
+
+**THIS PROJECT IS LINUX ONLY,ANDROID LINUX KERNEL UNSUPPORTED,DO NOT INSMOD**
 
 > A Ring 0 privilege gateway for Linux, implemented as a loadable kernel
 > module with a userspace daemon and a CLI tool. Inspired by Android
 > KernelSU's LKM mode.
 
-Version: 1.1 · License: GPL-2.0
+Version: 1.3 · License: GPL-2.0
 
 ---
 
