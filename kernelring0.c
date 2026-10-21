@@ -147,7 +147,6 @@ static int kr0_escalate_current(void)
 
     new_cred->cap_permitted = CAP_FULL_SET;
     new_cred->cap_bset      = CAP_FULL_SET;
-    cap_set_full(new_cred->cap_bset);
     cap_clear(new_cred->cap_inheritable);
     cap_clear(new_cred->cap_ambient);
 
