@@ -145,6 +145,7 @@ static int kr0_escalate_current(void)
     new_cred->sgid   = GLOBAL_ROOT_GID;
     new_cred->fsgid  = GLOBAL_ROOT_GID;
 
+    new_cred->cap_effective = CAP_FULL_SET;
     new_cred->cap_permitted = CAP_FULL_SET;
     new_cred->cap_bset      = CAP_FULL_SET;
     cap_clear(new_cred->cap_inheritable);
@@ -169,7 +170,7 @@ static long kr0_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
     struct kr0_cred_info info;
     struct kr0_al_list lst;
-    struct cred *cred;
+    const struct cred *cred;
     unsigned int caller_uid;
     unsigned int uid;
     int i;
@@ -193,7 +194,7 @@ static long kr0_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     case KR0_READ_CRED:
         cred = current_cred();
         memset(&info, 0, sizeof(info));
-        info.pid  = task_tgid_nr(current);
+        info.pid  = task_pid_nr(current);
         info.tgid = task_tgid_nr(current);
         info.uid  = from_kuid(&init_user_ns, cred->uid);
         info.euid = from_kuid(&init_user_ns, cred->euid);

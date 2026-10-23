@@ -171,8 +171,15 @@ static int dev_open(void)
 {
     int fd = open(DEV_PATH, O_RDWR);
     if (fd < 0) {
-        fprintf(stderr, "kernelring0d: command not found\n");
-        exit(127);
+        /* Startup path only (daemon, root): a missing device means the
+         * module is not loaded or the node is not created yet. That is a
+         * configuration error, not an unauthorized probe, so report the
+         * real cause instead of the "command not found" disguise used by
+         * the client path.
+         */
+        fprintf(stderr, "kernelring0d: open(%s) failed: %s\n",
+                DEV_PATH, strerror(errno));
+        exit(1);
     }
     return fd;
 }
